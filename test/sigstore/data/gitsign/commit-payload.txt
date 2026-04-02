@@ -1,0 +1,7 @@
+tree 95bbe34635564da7773b5e030c2b4b3c9c898c48
+parent 5b3889f3c4226a7e7cc745283d4b950d9db381a4
+author CI Pipeline <ci@gitlab.caproni.test> 1775104424 +0000
+committer CI Pipeline <ci@gitlab.caproni.test> 1775104424 +0000
+
+test gitsign-signed commit pipeline 55
+

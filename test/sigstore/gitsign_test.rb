@@ -84,12 +84,46 @@ class Sigstore::GitsignTest < Test::Unit::TestCase
 
     result = Sigstore::Gitsign.verify_commit(
       signature_pem: sig_pem,
-      signed_payload: @payload,
+      commit_sha: "abc123deadbeef",
       trust_root: trust_root,
       policy: policy
     )
 
     refute result.verified?
     assert_match(/not Fulcio-issued/, result.reason)
+  end
+
+  # Integration test using real gitsign-signed commit from caproni-lab.
+  # Requires the caproni-lab Rekor instance to be reachable.
+  def test_verify_real_gitsign_commit_from_caproni_lab
+    fixture_dir = File.expand_path("data/gitsign", __dir__)
+    signature_pem = File.read(File.join(fixture_dir, "commit-signature.pem"))
+    commit_sha = File.read(File.join(fixture_dir, "commit-sha.txt")).strip
+    trusted_root_path = File.join(fixture_dir, "trusted_root.json")
+
+    trust_root = Sigstore::TrustedRoot.from_file(trusted_root_path)
+
+    # The Fulcio cert SAN is the CI job URI; the OIDC issuer is the GitLab instance
+    policy = Sigstore::Policy::Identity.new(
+      identity: "http://gitlab.caproni.test/root/sigstore-test//.gitlab-ci.yml@refs/heads/gitsign-test-54",
+      issuer: "http://gitlab.caproni.test"
+    )
+
+    # Allow real network connections for this test (WebMock is enabled globally)
+    WebMock.allow_net_connect!
+    begin
+      result = Sigstore::Gitsign.verify_commit(
+        signature_pem: signature_pem,
+        commit_sha: commit_sha,
+        trust_root: trust_root,
+        policy: policy
+      )
+    rescue Errno::ECONNREFUSED, SocketError, Net::OpenTimeout => e
+      omit "caproni-lab Rekor not reachable: #{e.message}"
+    ensure
+      WebMock.disable_net_connect!
+    end
+
+    assert result.verified?, "Expected verified commit, got: #{result.respond_to?(:reason) ? result.reason : result}"
   end
 end

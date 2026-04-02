@@ -1,0 +1,55 @@
+{
+  "mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",
+  "tlogs": [
+    {
+      "baseUrl": "http://rekor.caproni.test",
+      "hashAlgorithm": "SHA2_256",
+      "publicKey": {
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPfzn3uU3bc8ROckwdiKeOIR0HYhsPTA7BvYKfcLhGWuRPb4dZIin+g+4NzTiQJ6+h2y6Au5eJiNtILRVWaWFCg==",
+        "keyDetails": "PKIX_ECDSA_P256_SHA_256",
+        "validFor": {
+          "start": "2024-01-01T00:00:00Z"
+        }
+      },
+      "logId": {
+        "keyId": "8401016045713942172"
+      }
+    }
+  ],
+  "certificateAuthorities": [
+    {
+      "subject": {
+        "organization": "sigstore.dev",
+        "commonName": "sigstore"
+      },
+      "uri": "http://fulcio.caproni.test",
+      "certChain": {
+        "certificates": [
+          {
+            "rawBytes": "MIICNjCCAd2gAwIBAgIINEroZ7+Ns4AwCgYIKoZIzj0EAwIwfjEMMAoGA1UEBhMDVVNBMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRYwFAYDVQQHEw1TYW4gRnJhbmNpc2NvMRYwFAYDVQQJEw01NDggTWFya2V0IFN0MQ4wDAYDVQQREwU1NzI3NDEZMBcGA1UEChMQTGludXggRm91bmRhdGlvbjAeFw0yNjA0MDIwMTUxMjJaFw0yNzA0MDIwMTUxMjJaMH4xDDAKBgNVBAYTA1VTQTETMBEGA1UECBMKQ2FsaWZvcm5pYTEWMBQGA1UEBxMNU2FuIEZyYW5jaXNjbzEWMBQGA1UECRMNNTQ4IE1hcmtldCBTdDEOMAwGA1UEERMFNTcyNzQxGTAXBgNVBAoTEExpbnV4IEZvdW5kYXRpb24wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASEcplI0+bKv9/a6sA/GLR+PfzcZRPQthu+CqOtinTgN22WyO8FI/0HIJyPi8J9wtmTNQ318Yhw5WsoaCAFvnEQo0UwQzAOBgNVHQ8BAf8EBAMCAQYwEgYDVR0TAQH/BAgwBgEB/wIBATAdBgNVHQ4EFgQU0AHCnjFv2xzNkjdcjTCXbxXE8fswCgYIKoZIzj0EAwIDRwAwRAIgas7gq2PmA1hBap0I+Yp2K7p7k0Zs0JWhv71T+HO9AwACIDq3IoUDw2syo2wb3MXuazO1EEVNcvbP4EUpcHJTwOyU"
+          }
+        ]
+      },
+      "validFor": {
+        "start": "2024-01-01T00:00:00Z"
+      }
+    }
+  ],
+  "ctlogs": [
+    {
+      "baseUrl": "http://ctlog.caproni.test",
+      "hashAlgorithm": "SHA2_256",
+      "publicKey": {
+        "rawBytes": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAMnZQ/r86uAXbh9HQa/GNcyY3LSMp/itTHbHAkHwTVRC1JqbRz9grVUZuteaah3fNTXbSccDh9xl3LYCodirnA==",
+        "keyDetails": "PKIX_ECDSA_P256_SHA_256",
+        "validFor": {
+          "start": "2024-01-01T00:00:00Z"
+        }
+      },
+      "logId": {
+        "keyId": ""
+      }
+    }
+  ],
+  "timestampAuthorities": []
+}
