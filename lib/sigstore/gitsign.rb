@@ -105,14 +105,13 @@ module Sigstore
     # Verifies a gitsign-signed git commit.
     #
     # @param signature_pem [String] the PEM PKCS7 signature from gpgsig header
-    # @param signed_payload [String] the signed commit content (everything
-    #   except the gpgsig header itself)
+    # @param commit_sha [String] the git commit SHA (hex string)
     # @param trust_root [Sigstore::TrustedRoot] trust root for verification
     # @param policy [Sigstore::Policy::Identity, etc.] identity policy
     # @param offline [Boolean] if true, skip Rekor lookup (requires bundle
     #   with inclusion proof)
     # @return [Sigstore::VerificationResult]
-    def self.verify_commit(signature_pem:, signed_payload:, trust_root:, policy:, offline: false)
+    def self.verify_commit(signature_pem:, commit_sha:, trust_root:, policy:, offline: false)
       parsed = parse_cms_signature(signature_pem)
       cert = parsed[:certificate]
 
@@ -122,71 +121,51 @@ module Sigstore
         )
       end
 
-      # Build a sigstore bundle from the CMS components
       cert_der = cert.to_der
-
-      # For gitsign, the signature in the PKCS7 is over the commit content.
-      # The Rekor entry is a hashedrekord keyed by SHA256 of the signed payload.
-      payload_digest = OpenSSL::Digest::SHA256.digest(signed_payload)
 
       # Create a verifier from the trust root
       verifier = Verifier.for_trust_root(trust_root: trust_root)
 
-      # Query Rekor for the matching entry.
-      # Gitsign creates a hashedrekord entry with:
-      #   - hash: SHA256 of the signed commit payload
-      #   - signature: the raw signature from the PKCS7 SignerInfo
+      # Gitsign creates a hashedrekord entry where:
+      #   - hash: SHA256 of the commit SHA hex string (NOT the signed payload)
+      #   - signature: a fresh ECDSA signature (NOT the CMS signature)
       #   - public key: the Fulcio leaf certificate PEM
       #
-      # We construct the expected entry and search for it.
-      expected_entry = {
-        "spec" => {
-          "signature" => {
-            "content" => Internal::Util.base64_encode(parsed[:signature]),
-            "publicKey" => {
-              "content" => Internal::Util.base64_encode(cert.to_pem)
-            }
-          },
-          "data" => {
-            "hash" => {
-              "algorithm" => "sha256",
-              "value" => Internal::Util.hex_encode(payload_digest)
-            }
-          }
-        },
-        "kind" => "hashedrekord",
-        "apiVersion" => "0.0.1"
-      }
+      # We search Rekor by hash to find the entry, then verify the entry
+      # contains a certificate matching the one in our PKCS7 signature.
+      commit_sha_hex_digest = OpenSSL::Digest::SHA256.hexdigest(commit_sha)
 
       begin
         entry = if offline
                   raise Error, "Offline verification not yet supported for gitsign commits"
                 else
-                  verifier.rekor_client.log.entries.retrieve.post(expected_entry)
+                  search_rekor_by_hash(verifier.rekor_client, commit_sha_hex_digest, cert)
                 end
-      rescue Sigstore::Error::FailedRekorLookup => e
-        return VerificationFailure.new("Rekor entry not found for commit: #{e.message}")
+      rescue Error => e
+        return VerificationFailure.new("Rekor entry not found: #{e.message}")
       end
 
-      # Now build a full VerificationInput protobuf
+      # Build a bundle with the Rekor entry for verification
       bundle = Bundle::V1::Bundle.new
       bundle.media_type = BundleType::BUNDLE_0_3.media_type
 
-      # Verification material: certificate + tlog entry
       bundle.verification_material = Bundle::V1::VerificationMaterial.new
       bundle.verification_material.certificate = Common::V1::X509Certificate.new
       bundle.verification_material.certificate.raw_bytes = cert_der
       bundle.verification_material.tlog_entries.push(entry)
 
-      # Message signature
+      # The message signature in the Rekor entry (NOT the CMS signature)
+      rekor_body = JSON.parse(entry.canonicalized_body)
+      rekor_sig_b64 = rekor_body.dig("spec", "signature", "content")
+      rekor_sig = Internal::Util.base64_decode(rekor_sig_b64)
+
       bundle.message_signature = Common::V1::MessageSignature.new
-      bundle.message_signature.signature = parsed[:signature]
+      bundle.message_signature.signature = rekor_sig
 
-      # Artifact (the signed commit payload)
+      # The artifact is the commit SHA hex string (what was hashed for Rekor)
       artifact = Verification::V1::Artifact.new
-      artifact.artifact = signed_payload
+      artifact.artifact = commit_sha
 
-      # Assemble the verification input
       input = Verification::V1::Input.new
       input.artifact_trust_root = trust_root.__getobj__
       input.bundle = bundle
@@ -194,6 +173,48 @@ module Sigstore
 
       verification_input = VerificationInput.new(input)
       verifier.verify(input: verification_input, policy: policy, offline: offline)
+    end
+
+    # Searches Rekor for a hashedrekord entry matching the commit SHA.
+    # Returns the decoded tlog entry, or raises Error if not found.
+    def self.search_rekor_by_hash(rekor_client, sha256_hex, expected_cert)
+      # Access the Rekor client's HTTP session and base URL
+      # The client stores @url as "http://rekor.example/api/v1/"
+      client_url = rekor_client.instance_variable_get(:@url)
+      session = rekor_client.instance_variable_get(:@session)
+
+      # Search Rekor index by hash
+      index_url = URI.join(client_url, "index/retrieve")
+      data = { "hash" => "sha256:#{sha256_hex}" }
+      resp = session.post2(index_url.path, data.to_json,
+                           { "Content-Type" => "application/json", "Accept" => "application/json" })
+
+      raise Error, "Rekor index search failed: #{resp.code} #{resp.body}" unless resp.code == "200"
+
+      uuids = JSON.parse(resp.body)
+      raise Error, "No Rekor entries found for hash sha256:#{sha256_hex}" if uuids.empty?
+
+      # Fetch each entry and find the one with our certificate
+      uuids.each do |uuid|
+        entries_url = URI.join(client_url, "log/entries/#{uuid}")
+        entry_resp = session.get2(entries_url.path, { "Accept" => "application/json" })
+        next unless entry_resp.code == "200"
+
+        entry_data = JSON.parse(entry_resp.body)
+        entry_data.each do |_uuid, result|
+          body = JSON.parse(Internal::Util.base64_decode(result.fetch("body")))
+          next unless body["kind"] == "hashedrekord"
+
+          cert_pem = Internal::Util.base64_decode(body.dig("spec", "signature", "publicKey", "content"))
+          entry_cert = OpenSSL::X509::Certificate.new(cert_pem)
+
+          if entry_cert.to_der == expected_cert.to_der
+            return Rekor::Entries.decode_transparency_log_entry(entry_data)
+          end
+        end
+      end
+
+      raise Error, "No Rekor entry found with matching certificate"
     end
   end
 end
